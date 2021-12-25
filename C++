@@ -1,0 +1,12 @@
+#ifndef __gnu_java_beans_decoder_GrowableArrayContext__
+#define __gnu_java_beans_decoder_GrowableArrayContext__
+
+#pragma interface
+
+#include <gnu/java/beans/decoder/AbstractContext.h>
+extern "Java"
+{
+  namespace gnu
+  {
+    namespace java
+    End java

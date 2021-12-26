@@ -1,0 +1,207 @@
+'paketleyici/kurulum' gerektir
+ 'tırmık/temiz' gerektirmek
+ 'tırmık/testtask' gerektirmek
+ 'tırmık/uzatmatask' gerektirmek
+ 'yaml' gerektir
+ 'yajl' gerektir
+ 'open-uri' gerektir
+ 'json' gerektir
+ 'open3' gerektir
+
+görev :d efault => :test
+
+Tırmık::TestTask. Yeni
+
+gem_spec = Mücevher::Belirtim. yük('github-linguist.gemspec')
+
+Tırmık::ExtensionTask. yeni('dilbilimci', gem_spec) | ext|
+  ext. lib_dir = Dosya. katıl('lib', 'dilbilimci')
+son
+
+# Örnekleri kontrol etmek ve en son As modlarını getirmek için test görevini genişletin
+görev :test => [:compile, :check_samples, :fetch_ace_modes]
+
+desc "Samples.json'un oluşturulduğuna bakın"
+görev :check_samples yapın
+  Dosya .' var olmak? ('lib/dilbilimci/samples.json')
+    Tırmık::Görev[:örnekler]. çağırmak
+  son
+son
+
+desc "GitHub deposundan en son As modlarını getir"
+görev :fetch_ace_modes yapın
+  ACE_FIXTURE_PATH = Dosya. katıl('test', 'fikstür', 'ace_modes.json')
+
+  Dosya. sil(ACE_FIXTURE_PATH) dosya ise.  var olmak? (ACE_FIXTURE_PATH)
+
+  başlamak
+    ace_github_modes = URI. açık("https://api.github.com/repos/ajaxorg/ace/contents/lib/ace/mode"). okumak
+    Dosya. yazma(ACE_FIXTURE_PATH, ace_github_modes)
+   Kurtarma OpenURI::HTTPError, SocketError
+      # i̇nternet yok mu? sorun değil.
+  son
+son
+
+görev :samples => :compile do
+   'dilbilimci/örnek' gerektirir
+  json = Yajl. dump(Dilbilimci::Örnekler. veri, :p retty => false)
+  Dosya. yaz 'lib/linguist/samples.json', json
+son
+
+görev :flex do
+  'Flex -V' ise !~ /^flex \d+\. \d+\. \d+/
+    başarısız "esnek algılanmadı"
+  son
+  sistem "cd ext/linguist & flex tokenizer.l"
+son
+
+# Tüm dilbilgisi %100 hatasız olana kadar hata sayısının burada ayarlanması gerekecektir.
+desc "Dilbilgisi derlemenin yeni beklenmeyen hatalar getirmediğini denetleyin"
+görev :check_grammars yapın
+  expected_error_count = 26 # Bu sayım sadece aşağı inmelidir. Yukarı çıkarsa, dilbilgisini güncelleştirmeden önce ele alınması gereken yeni bir sorun vardır.
+  rm_rf "dilbilimci-dilbilgisi"
+  çıktı, durum = Open3. capture2e("komut dosyası/dilbilgisi derleyicisi", "derleme", "-o", "dilbilimci-dilbilgisi")
+  errors_found = output[/Dilbilgisi kitaplığı ([0-9]+) hataları/, 1]içerir. to_i
+  missing_grammars = çıkış. tarama(/Depoda kapsam eksik: '([^'].+)' grammars.yml'de listeleniyor, ancak bulunamıyor/)
+
+  tabii missing_grammars. boş?
+    başarısız <<~EKSİk
+      #{çıktı}
+ HATA: Aşağıdaki dilbilgisi bulunamadı:
+      #{missing_grammars. join("\n")}
+ Lütfen yukarıdaki çıktıyı gözden geçirin.
+      MISSING
+  end
+
+  unless errors_found == expected_error_count
+    fail <<~ERRORS
+      #{output}
+      ERROR: An unexpected number of errors have been found. Expected: #{expected_error_count}, Found: #{errors_found}.
+      Please review the output and adjust the rake task expected error count if needed.
+      ERRORS
+  end
+end
+
+task :build_gem => :samples do
+  rm_rf "grammars"
+  sh "script/grammar-compiler compile -o grammars || true"
+  languages = YAML.load_file("lib/linguist/languages.yml")
+  File.write("lib/linguist/languages.json", Yajl.dump(languages))
+  `gem build github-linguist.gemspec`
+  File.delete("lib/linguist/languages.json")
+son
+
+ad alanı :kıyaslama do
+  benchmark_path = "kıyaslama/sonuçlar"
+
+  # $ paketi exec tırmık kıyaslaması:CORPUS=path/to/samples oluşturun
+  desc "Sonuç oluştur"
+  görev :oluştur do
+    ref = 'git rev-parse HEAD'. şerit[0,8]
+
+    corpus = Dosya. expand_path(ENV["CORPUS"] || "örnekler")
+
+     'dilbilimci' gerektir
+
+    results = Karma. Yeni
+    Dir. glob("#{corpus}/**/*"). her biri | dosya|
+      sonraki dosya değilse.  dosya? (dosya)
+      dosyaadı = dosya. gsub("#{corpus}/", "")
+      sonuçlar[dosyaadı] = Dilbilimci::FileBlob. yeni(dosya). Dil
+    son
+
+    # Sonuç dizininin varolmasını sağlayın
+    FileUtils. mkdir_p("kıyaslama/sonuçlar")
+
+    # Sonuçları yaz
+    'git durumu'ise. kapsamak? ('çalışma dizini temizleme')
+      result_filename = "kıyaslama/sonuçlar/#{Dosya. temel ad(corpus)}-#{ref}.json"
+    başka
+      result_filename = "kıyaslama/sonuçlar/#{Dosya. temel ad(corpus)}-#{ref}-unstaged.json"
+    son
+
+    Dosya. yaz(result_filename, sonuçlar. to_json)
+     "yazıldı  #{result_filename}"
+  son
+
+  # $ paketi exec tırmık kıyaslaması:REFERENCE=path/to/reference.json CANDIDATE=path/to/candidate.json karşılaştırması
+  desc "Sonuçları karşılaştır"
+  görev :karşılaştırma do
+    reference_file = ENV["REFERANS"]
+    candidate_file = ENV["ADAY"]
+
+    başvuru = Yajl. load(Dosya. okuma(reference_file))
+    reference_counts = Karma. yeni(0)
+    başvuru. her { | dosya adı, dil| reference_counts[dil] += 1 }
+
+    aday = Yajl. load(Dosya. okuma(candidate_file))
+    candidate_counts = Karma. yeni(0)
+    aday. her { | dosya adı, dil| candidate_counts[dil] += 1 }
+
+    değişiklikler = fark(reference_counts, candidate_counts)
+
+    değişirse.  herhangi?
+      değişiklikleri. her biri | dil, (önce, sonra)|
+        before_percent = 100 * önce / referans. boyutu. to_f
+        after_percent = 100 * sonra / aday. boyutu. to_f
+         "%s %.1f%% ile %.1f%%" % % [dil || 'bilinmiyor', before_percent, after_percent]
+      son
+    başka
+       "Değişiklik yok" koyar
+    son
+  son
+son
+
+ad alanı :sınıflandırıcı do
+  SINIR = 1_000
+
+  desc "Sınıflandırıcıyı  #{LIMIT}  ortak gist'lere karşı çalıştır"
+  görev :test do
+     'dilbilimci/sınıflandırıcı' gerektirme
+     'dilbilimci/örnek' gerektirir
+
+    toplam, doğru, yanlış = 0, 0, 0
+ $stdout. eşitleme = doğru
+
+    each_public_gist | gist_url, file_url, file_language|
+      file_language sonra.  Sıfır mı? || file_language == 'Metin'
+      başlamak
+        data = open(file_url). okumak
+        guessed_language, puan = Dilbilimci::Sınıflandırıcı. sınıflandırma(Dilbilimci::Örnekler. önbellek, veri). birinci
+
+        toplam += 1
+        guessed_language == file_language ? doğru += 1 : yanlış += 1
+
+        yazdır "\r\e[0K%d:%d %g%%" % [doğru, yanlış, (doğru. to_f/toplam. to_f)*100]
+ $stdout. flush
+      kurtarma URI'si::InvalidURIError
+      başka
+        toplam >= SINIR ise mola
+      son
+    son
+    koyar ""
+  son
+
+  def each_public_gist
+     'open-uri' gerektir
+    url = "https://api.github.com/gists/public"
+
+    döngü yapmak
+      resp = aç(url)
+      url = resp. meta['link'][/<([^>]+)>; rel="next"/, 1]
+      gists = Yajl. yük(resp. okumak)
+
+       anakındaki anak  için
+        dosya adı için, ana bilgisayardaki attrs  ['dosyalar' ]
+          verim gist['url'], attrs['raw_url'], attrs['dil']
+        son
+      son
+    son
+  son
+son
+
+
+def fark(a, b)
+  (a. tuşlar | b. tuşları). each_with_object({}) | anahtar, fark|
+    diff[anahtar] = [anahtar], b[anahtar]] bir [ anahtar ] sürece =anahtar] == b[anahtar ]
+  son
